@@ -53,10 +53,13 @@ realistic to click through immediately. Documents alternate ownership between th
 accounts so the review and permission-grant features have someone to act on the other's
 behalf:
 
-| username | password      | role     | department |
-|----------|---------------|----------|------------|
-| admin    | admin12345    | admin    | IT         |
-| employee | employee12345 | employee | Sales      |
+| username | role     | department |
+|----------|----------|------------|
+| admin    | admin    | IT         |
+| employee | employee | Sales      |
+
+The passwords aren't listed here (this repo is public and the app may be deployed) — the
+`seed_demo` command prints each account's credentials to the console as it creates them.
 
 Run the backend test suite with:
 
