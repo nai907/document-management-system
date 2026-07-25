@@ -1,0 +1,20 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+
+# Virtual environment
+backend_venv/
+
+# Django
+backend/db.sqlite3
+backend/media/
+backend/staticfiles_frontend/
+
+# Editor
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
