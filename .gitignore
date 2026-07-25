@@ -15,6 +15,7 @@ backend/backups/
 # Secrets - real DB/S3 credentials live here, never commit these
 backend/.env
 backend/vercel-env.local.txt
+backend/site-passwords.local.txt
 
 # Editor
 .vscode/
