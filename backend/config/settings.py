@@ -235,5 +235,10 @@ if os.environ.get('VERCEL'):
         default=f'sqlite:///{BASE_DIR / "db.sqlite3"}',
         conn_max_age=0,
     )
+    # Supabase's transaction pooler (the only Postgres route reachable from
+    # Vercel) can't track Postgres server-side cursors across pooled
+    # connections - Django queryset iteration then dies with
+    # InvalidCursorName. Client-side cursors only.
+    DATABASES['default']['DISABLE_SERVER_SIDE_CURSORS'] = True
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
