@@ -51,9 +51,5 @@ async function submit() {
       </button>
       <p v-if="error" class="error-text">{{ error }}</p>
     </form>
-    <p class="muted" style="font-size: 0.82rem">
-      Demo accounts (after running <code>seed_demo</code>): admin/admin12345,
-      employee/employee12345
-    </p>
   </div>
 </template>
