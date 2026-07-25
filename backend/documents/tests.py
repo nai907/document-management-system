@@ -2,6 +2,7 @@ from datetime import timedelta
 
 from django.contrib.auth import get_user_model
 from django.core.files.uploadedfile import SimpleUploadedFile
+from django.db import IntegrityError, transaction
 from django.utils import timezone
 from rest_framework.test import APITestCase
 
@@ -21,15 +22,24 @@ class DuplicateTitleTests(APITestCase):
     def setUp(self):
         self.owner = User.objects.create_user("owner", password="pass12345")
 
-    def test_find_duplicate_titles(self):
-        Document.objects.create(title="Policy.pdf", owner=self.owner)
-        second = Document.objects.create(title="Policy.pdf", owner=self.owner)
-        dupes = Document.find_duplicate_titles("policy.pdf", exclude_pk=second.pk)
-        self.assertEqual(len(dupes), 1)
+    def test_clean_title_trims_and_lowercases(self):
+        self.assertEqual(Document.clean_title("  Policy.PDF  "), "policy.pdf")
 
-    def test_no_duplicates_for_unique_title(self):
+    def test_saving_duplicate_title_raises_integrity_error(self):
+        Document.objects.create(title="Policy.pdf", owner=self.owner)
+        with self.assertRaises(IntegrityError):
+            with transaction.atomic():
+                Document.objects.create(title="policy.pdf", owner=self.owner)
+
+    def test_saving_duplicate_title_with_whitespace_raises_integrity_error(self):
+        Document.objects.create(title="Policy.pdf", owner=self.owner)
+        with self.assertRaises(IntegrityError):
+            with transaction.atomic():
+                Document.objects.create(title=" Policy.pdf ", owner=self.owner)
+
+    def test_unique_titles_save_fine(self):
         Document.objects.create(title="Unique.pdf", owner=self.owner)
-        self.assertEqual(Document.find_duplicate_titles("Something else"), [])
+        Document.objects.create(title="Something else.pdf", owner=self.owner)
 
     def test_document_code_assigned_and_unique(self):
         d1 = Document.objects.create(title="A", owner=self.owner)
@@ -196,15 +206,42 @@ class DocumentApiTests(APITestCase):
         )
         self.assertEqual(resp.status_code, 400)
 
-    def test_duplicate_title_warning_returned(self):
+    def test_duplicate_title_rejected_on_upload(self):
+        self.client.force_authenticate(self.owner)
+        first = self.client.post(
+            "/api/documents/", {"title": "Dup.pdf", "file": make_file()}, format="multipart"
+        )
+        self.assertEqual(first.status_code, 201)
+        resp = self.client.post(
+            "/api/documents/", {"title": "  DUP.pdf  ", "file": make_file()}, format="multipart"
+        )
+        self.assertEqual(resp.status_code, 400)
+        self.assertIn("title", resp.data)
+        self.assertEqual(Document.objects.filter(title__icontains="dup").count(), 1)
+
+    def test_rename_to_existing_title_rejected(self):
         self.client.force_authenticate(self.owner)
         self.client.post(
-            "/api/documents/", {"title": "Dup.pdf", "file": make_file()}, format="multipart"
+            "/api/documents/", {"title": "Existing.pdf", "file": make_file()}, format="multipart"
         )
-        resp = self.client.post(
-            "/api/documents/", {"title": "Dup.pdf", "file": make_file()}, format="multipart"
+        second = self.client.post(
+            "/api/documents/", {"title": "Renameable.pdf", "file": make_file()}, format="multipart"
         )
-        self.assertEqual(len(resp.data["duplicate_warning"]), 1)
+        resp = self.client.patch(
+            f"/api/documents/{second.data['id']}/", {"title": "existing.pdf"}, format="json"
+        )
+        self.assertEqual(resp.status_code, 400)
+
+    def test_rename_to_unique_title_succeeds(self):
+        self.client.force_authenticate(self.owner)
+        create_resp = self.client.post(
+            "/api/documents/", {"title": "Original.pdf", "file": make_file()}, format="multipart"
+        )
+        resp = self.client.patch(
+            f"/api/documents/{create_resp.data['id']}/", {"title": "Renamed.pdf"}, format="json"
+        )
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.data["title"], "Renamed.pdf")
 
     def test_stranger_cannot_view_document(self):
         self.client.force_authenticate(self.owner)

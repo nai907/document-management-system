@@ -48,6 +48,7 @@ class Document(models.Model):
 
     code = models.CharField(max_length=32, unique=True, blank=True)
     title = models.CharField(max_length=255)
+    normalized_title = models.CharField(max_length=255, unique=True, editable=False, blank=True)
     description = models.TextField(blank=True)
     folder = models.ForeignKey(
         Folder, null=True, blank=True, on_delete=models.SET_NULL, related_name="documents"
@@ -71,6 +72,7 @@ class Document(models.Model):
         return f"{self.code} - {self.title}"
 
     def save(self, *args, **kwargs):
+        self.normalized_title = Document.clean_title(self.title)
         is_new = self.pk is None
         super().save(*args, **kwargs)
         if is_new and not self.code:
@@ -83,11 +85,8 @@ class Document(models.Model):
         return self.versions.order_by("-version_number").first()
 
     @staticmethod
-    def find_duplicate_titles(title, exclude_pk=None):
-        qs = Document.objects.filter(title__iexact=title)
-        if exclude_pk:
-            qs = qs.exclude(pk=exclude_pk)
-        return list(qs)
+    def clean_title(title):
+        return title.strip().lower()
 
 
 class DocumentVersion(models.Model):

@@ -10,22 +10,31 @@ For the full list of settings and their values, see
 https://docs.djangoproject.com/en/6.0/ref/settings/
 """
 
+import os
 from pathlib import Path
+
+import dj_database_url
+from dotenv import load_dotenv
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
 
+# Loads backend/.env if present. Real credentials (DATABASE_URL, S3 keys,
+# etc.) live there, never in this file - see .env.example for the template.
+load_dotenv(BASE_DIR / '.env')
 
 # Quick-start development settings - unsuitable for production
 # See https://docs.djangoproject.com/en/6.0/howto/deployment/checklist/
 
 # SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = 'django-insecure-_0@m3tl@8m3g)k-k+q!6+(7e=t+)e*mvubn7+*_-p%1%zs8fi_'
+SECRET_KEY = os.environ.get(
+    'SECRET_KEY', 'django-insecure-_0@m3tl@8m3g)k-k+q!6+(7e=t+)e*mvubn7+*_-p%1%zs8fi_'
+)
 
 # SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = True
+DEBUG = os.environ.get('DEBUG', 'True') == 'True'
 
-ALLOWED_HOSTS = []
+ALLOWED_HOSTS = [h for h in os.environ.get('ALLOWED_HOSTS', '').split(',') if h]
 
 
 # Application definition
@@ -39,10 +48,12 @@ INSTALLED_APPS = [
     'django.contrib.staticfiles',
     'rest_framework',
     'corsheaders',
+    'storages',
     'accounts',
     'documents',
     'reviews',
     'audit',
+    'backup',
 ]
 
 MIDDLEWARE = [
@@ -96,12 +107,16 @@ WSGI_APPLICATION = 'config.wsgi.application'
 
 # Database
 # https://docs.djangoproject.com/en/6.0/ref/settings/#databases
+#
+# Set DATABASE_URL (e.g. a Supabase Postgres connection string) in .env to
+# use a cloud database. Falls back to local SQLite when it's not set, so the
+# app keeps working before cloud credentials exist.
 
 DATABASES = {
-    'default': {
-        'ENGINE': 'django.db.backends.sqlite3',
-        'NAME': BASE_DIR / 'db.sqlite3',
-    }
+    'default': dj_database_url.config(
+        default=f'sqlite:///{BASE_DIR / "db.sqlite3"}',
+        conn_max_age=600,
+    )
 }
 
 
@@ -141,7 +156,59 @@ USE_TZ = True
 
 STATIC_URL = 'static/'
 
+# MEDIA_URL/MEDIA_ROOT are always defined (config/urls.py references them
+# unconditionally to serve local media in DEBUG) even though they're only
+# actually used for storage when the S3 backend below isn't active.
 MEDIA_URL = 'media/'
 MEDIA_ROOT = BASE_DIR / 'media'
+
+# Uploaded document storage
+# https://django-storages.readthedocs.io/
+#
+# Set AWS_STORAGE_BUCKET_NAME (+ the other AWS_* vars below) in .env to store
+# uploaded files in S3-compatible cloud storage (e.g. Supabase Storage,
+# Cloudflare R2, AWS S3 itself). Falls back to local disk under media/ when
+# it's not set.
+
+AWS_STORAGE_BUCKET_NAME = os.environ.get('AWS_STORAGE_BUCKET_NAME')
+
+if AWS_STORAGE_BUCKET_NAME:
+    STORAGES = {
+        'default': {'BACKEND': 'storages.backends.s3.S3Storage'},
+        'staticfiles': {'BACKEND': 'django.contrib.staticfiles.storage.StaticFilesStorage'},
+    }
+    AWS_ACCESS_KEY_ID = os.environ.get('AWS_ACCESS_KEY_ID')
+    AWS_SECRET_ACCESS_KEY = os.environ.get('AWS_SECRET_ACCESS_KEY')
+    AWS_S3_ENDPOINT_URL = os.environ.get('AWS_S3_ENDPOINT_URL')  # unset for real AWS S3
+    AWS_S3_REGION_NAME = os.environ.get('AWS_S3_REGION_NAME', 'us-east-1')
+    AWS_S3_ADDRESSING_STYLE = 'path'
+    # Files are private by default; DocumentDownloadView fetches bytes
+    # server-side with these credentials and streams them through the
+    # existing permission check - nothing should ever rely on a public or
+    # long-lived direct S3 URL bypassing that check.
+    AWS_DEFAULT_ACL = 'private'
+    AWS_QUERYSTRING_AUTH = True
+    AWS_QUERYSTRING_EXPIRE = 300
+
+# Backups (backup app). Writes into BACKUP_DIR and prunes down to
+# BACKUP_RETENTION. Two ways to trigger a backup:
+#  - `python manage.py run_backup`, invoked externally on a schedule by cron
+#    / Windows Task Scheduler (see README).
+#  - Automatically, from inside this process: if BACKUP_INTERVAL_SECONDS is
+#    set (> 0), a background thread writes one every that many seconds for
+#    as long as `manage.py runserver` is running. Set to 0 to disable - it
+#    only fires while this process stays up, and a multi-worker production
+#    server would run one independent timer per worker, so the run_backup
+#    command is the more reliable choice outside a single dev server.
+BACKUP_DIR = os.environ.get('BACKUP_DIR', str(BASE_DIR / 'backups'))
+BACKUP_RETENTION = int(os.environ.get('BACKUP_RETENTION', '14'))
+BACKUP_INTERVAL_SECONDS = int(os.environ.get('BACKUP_INTERVAL_SECONDS', '86400'))
+# Where scheduled backups go: 'local' writes zips into BACKUP_DIR on this
+# machine's disk; 'bucket' uploads them to the default file storage (the S3
+# bucket when AWS_STORAGE_BUCKET_NAME is set) under BACKUP_S3_PREFIX, which
+# survives redeploys on ephemeral-disk hosting. Manual downloads from the
+# Backup page are unaffected - they always stream to the browser.
+BACKUP_STORAGE = os.environ.get('BACKUP_STORAGE', 'local')
+BACKUP_S3_PREFIX = os.environ.get('BACKUP_S3_PREFIX', 'backups/')
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'

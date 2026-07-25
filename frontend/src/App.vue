@@ -23,6 +23,7 @@ function logout() {
         <router-link v-if="auth.isAdmin" :to="{ name: 'admin-dashboard' }">Dashboard</router-link>
         <router-link v-if="auth.isAdmin" :to="{ name: 'admin-audit' }">Audit Log</router-link>
         <router-link v-if="auth.isAdmin" :to="{ name: 'admin-users' }">Users</router-link>
+        <router-link v-if="auth.isAdmin" :to="{ name: 'admin-backup' }">Backup</router-link>
       </nav>
       <div class="user-info">
         <span>{{ auth.user.username }} ({{ auth.user.role }})</span>

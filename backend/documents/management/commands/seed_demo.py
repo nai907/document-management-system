@@ -107,11 +107,8 @@ class Command(BaseCommand):
             permissions=[(u["employee"], dict(can_view=True, can_download=True), None)],
         )
 
-        # Intentional title collision with the document above, to demo the
-        # duplicate-title warning - different owner/folder so it's still a
-        # distinct real document, just an easy name clash to trip over.
         self._doc(
-            title="Q1 Financial Report.pdf", folder=f["Marketing"], owner=u["employee"],
+            title="Q1 Marketing Report.pdf", folder=f["Marketing"], owner=u["employee"],
             description="Marketing team's own Q1 numbers - unrelated to Finance's report.",
             tags=["marketing", "report"], status=Document.STATUS_DRAFT,
             versions=[("Draft", u["employee"])],

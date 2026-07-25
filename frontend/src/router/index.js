@@ -29,6 +29,12 @@ const routes = [
     component: () => import('../views/UserManagementView.vue'),
     meta: { adminOnly: true },
   },
+  {
+    path: '/admin/backup',
+    name: 'admin-backup',
+    component: () => import('../views/BackupRestoreView.vue'),
+    meta: { adminOnly: true },
+  },
 ]
 
 const router = createRouter({

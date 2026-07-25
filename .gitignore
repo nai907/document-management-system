@@ -10,6 +10,10 @@ backend_venv/
 backend/db.sqlite3
 backend/media/
 backend/staticfiles_frontend/
+backend/backups/
+
+# Secrets - real DB/S3 credentials live here, never commit this
+backend/.env
 
 # Editor
 .vscode/

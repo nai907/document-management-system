@@ -16,7 +16,6 @@ const tagsInput = ref('')
 const file = ref(null)
 const error = ref('')
 const loading = ref(false)
-const duplicates = ref(null)
 
 function onFileChange(e) {
   file.value = e.target.files[0] || null
@@ -38,11 +37,7 @@ async function submit() {
       file: file.value,
     })
     emit('created', doc)
-    if (doc.duplicate_warning && doc.duplicate_warning.length) {
-      duplicates.value = doc.duplicate_warning
-    } else {
-      emit('close')
-    }
+    emit('close')
   } catch (e) {
     error.value = extractErrorMessage(e)
   } finally {
@@ -59,20 +54,11 @@ async function submit() {
         <button class="btn btn-sm" @click="$emit('close')">✕</button>
       </div>
 
-      <div v-if="duplicates" class="card" style="background: var(--warning-bg); border-color: var(--warning)">
-        <strong>Heads up:</strong> {{ duplicates.length }} existing document(s) already use this title.
-        <ul style="margin: 8px 0 0; padding-left: 18px">
-          <li v-for="d in duplicates" :key="d.id">
-            {{ d.code }} — uploaded by {{ d.owner }}
-          </li>
-        </ul>
-        <button class="btn btn-sm" style="margin-top: 8px" @click="$emit('close')">Done</button>
-      </div>
-
-      <form v-else @submit.prevent="submit">
+      <form @submit.prevent="submit">
         <div class="field">
           <label for="up-title">Title</label>
           <input id="up-title" v-model="title" required style="width: 100%" />
+          <p class="muted" style="font-size: 0.78rem; margin-top: 4px">Must be unique — no two documents can share a title.</p>
         </div>
         <div class="field">
           <label for="up-desc">Description</label>

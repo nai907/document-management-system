@@ -1,37 +1,37 @@
 # Document Management System
 
-A Django + Vue app for tracking where documents live, who has viewed/edited/approved/
-acknowledged them, and a full audit history — built to replace an ad hoc file-share setup.
+A Django + Vue app for tracking where documents live, who can view/edit/approve/download them,
+and a full audit history — built to replace an ad hoc file-share setup.
 
 ## What it solves
 
 - **"We don't know where documents are"** — every document lives in a browsable folder tree
   and is searchable by title, description, tags, or its unique code.
-- **"We don't know who acknowledged them"** — documents can be marked as requiring
-  acknowledgement; the detail page shows exactly who has (and hasn't) confirmed they read it.
 - **"We can't search them"** — full-text-ish search (`?q=`) across title/description/tags/code.
-- **"No history check"** — every upload, view, download, edit, permission change, review
-  decision, and acknowledgement is written to an audit log, visible per-document and globally
-  (admin).
+- **"No history check"** — every upload, view, download, edit, permission change, and review
+  decision is written to an audit log, visible per-document and globally (admin).
 - **"Names may be duplicated"** — every document gets a permanent unique code
-  (`DOC-2026-000123`); uploading a title that already exists shows a non-blocking warning
-  listing the existing matches.
+  (`DOC-2026-000123`), and titles are hard-blocked from duplicating another document's title
+  once both are cleaned (trimmed + lowercased) — enforced by a real database unique constraint,
+  not just a warning.
 - **"Reviews stall with no follow-up"** — a simple Draft → In Review → Approved/Rejected
   workflow with assigned reviewers; the admin dashboard flags reviews pending more than 5 days.
 - **"No clear view/edit/approve/download permissions"** — global roles (Admin/Employee) plus
   per-document grants scoped to a user or group, each with its own view/edit/approve/download
-  flags and an optional expiry date.
-- **"No admin dashboard"** — `/admin/dashboard` shows document counts by status, overdue
-  reviews, permissions expiring soon, documents missing required acknowledgement, and recent
-  activity; `/admin/audit` is the full filterable log.
+  flags and an optional expiry date. Only admins can revoke a grant; owners can only create one.
+- **"No admin dashboard"** — `/admin/dashboard` shows document counts by status, who's still
+  blocking every in-review document, permissions expiring soon, and recent activity;
+  `/admin/audit` is the full filterable log.
 
 ## Stack
 
-- **Backend**: Django 6 + Django REST Framework, SQLite, JWT auth (`djangorestframework-simplejwt`).
+- **Backend**: Django 6 + Django REST Framework, JWT auth (`djangorestframework-simplejwt`).
+  SQLite + local disk by default; Postgres + S3-compatible cloud storage when configured (see
+  **Cloud database & storage** below).
 - **Frontend**: Vue 3 (`<script setup>`) + Vite + Vue Router + Pinia + Axios, plain CSS.
 
-No Docker, Postgres, or external search/storage service is required for this version —
-everything runs locally with two dev servers.
+No Docker or cloud account is required to run this locally — everything works out of the box
+with two dev servers and no external service.
 
 ## Running it
 
@@ -75,18 +75,88 @@ npm run dev
 Open `http://localhost:5173`. The Vite dev server proxies `/api` and `/media` to
 `http://127.0.0.1:8000`, so both servers must be running.
 
+## Cloud database & storage (optional)
+
+By default the app uses local SQLite and local disk — nothing to configure. To move to a
+cloud Postgres database and S3-compatible cloud file storage (e.g. Supabase, which offers
+both from one account):
+
+1. `cd backend`, copy `.env.example` to `.env`.
+2. Fill in `DATABASE_URL` with your Postgres connection string, and the `AWS_*` variables with
+   your storage bucket's S3-compatible credentials and endpoint (see the comments in
+   `.env.example` for where to find these in a Supabase project).
+3. Re-run migrations against the new database: `..\backend_venv\Scripts\python.exe manage.py migrate`
+   (and `seed_demo` again if you want the demo data there too).
+4. Restart the backend. `manage.py check` will confirm the settings load correctly even before
+   you point it at real credentials.
+
+Leaving a variable unset keeps that piece local — you can move the database to the cloud
+before the file storage, or vice versa, independently. **Keep the storage bucket private**
+(not public-read): `DocumentDownloadView` fetches file bytes server-side with your credentials
+and streams them through the existing permission check, so nothing needs a public URL, and a
+public bucket would let anyone with a file's path download it directly, bypassing permissions
+entirely.
+
+## Backup & restore
+
+An admin can download a full backup (every database record plus every uploaded file, as one
+`.zip`) from **Backup** in the app, and restore from one the same way — restoring fully replaces
+whatever's currently in the system, so it asks for a typed confirmation first.
+
+Besides the manual "Download backup" button, backups can run on a schedule two ways:
+
+**In-process timer (on by default).** Whenever `manage.py runserver` is up, a background thread
+writes a backup every `BACKUP_INTERVAL_SECONDS` (default `86400`, i.e. daily) and prunes down to
+`BACKUP_RETENTION`. Set `BACKUP_INTERVAL_SECONDS=0` to turn it off. This only covers a single
+process — it's the right fit for the dev server, but a multi-worker production server (several
+gunicorn workers, say) would start one independent timer per worker and write duplicate backups.
+For that case, use the OS-level scheduler below instead.
+
+**OS-level scheduler.** Point cron / Windows Task Scheduler at:
+
+```
+python manage.py run_backup
+```
+
+Both paths write to the same place, controlled by `BACKUP_STORAGE`:
+
+- `local` (default): a timestamped archive in `BACKUP_DIR` (defaults to `backend/backups/`,
+  override via the `BACKUP_DIR` env var). Nothing uploads it anywhere — if `BACKUP_DIR` points at
+  a synced/cloud-mounted folder, that sync is what gets it off the machine.
+- `bucket`: uploaded to the S3 bucket (the same one holding document files) under
+  `BACKUP_S3_PREFIX` (default `backups/`). Use this when hosting somewhere with an ephemeral
+  disk (Render, Railway, Heroku, ...), where anything written locally is wiped on every redeploy.
+
+Either way it prunes down to the last `BACKUP_RETENTION` backups (default 14, override via
+`--retention N` or the `BACKUP_RETENTION` env var).
+
+Example: a nightly backup at 2 AM, keeping the last 30.
+
+- **cron** (Linux/macOS): `0 2 * * * cd /path/to/backend && /path/to/venv/bin/python manage.py run_backup --retention 30`
+- **Windows Task Scheduler**: create a task with trigger "Daily at 2:00 AM", action running
+  `python.exe` with arguments `manage.py run_backup --retention 30` and "Start in" set to the
+  `backend` folder.
+
 ## Notable design decisions
 
 - **Permission resolution** (`backend/documents/permissions.py`): admins always pass; a
   document's owner can view/edit/download but not approve their own document; everyone else
   needs an explicit, non-expired `DocumentPermission` grant (direct or via a Django group).
+  Only admins can revoke a grant — owners can create one but not take it back.
 - **Document code** is assigned once on creation and never reused, so it stays a stable
-  identifier even if two documents share a title.
+  identifier even as titles are renamed.
+- **Title uniqueness**: `Document.normalized_title` (auto-computed as `title.strip().lower()`
+  on every save) carries a real database unique constraint — two documents can never share a
+  title, even if they differ only in case or whitespace.
 - **Audit log** entries are written explicitly inside each mutating view (not via signals),
   so every entry reliably captures the acting user and action-specific metadata.
 - **Auth tokens**: the JWT access token is kept in memory only (never persisted); the refresh
   token is kept in `sessionStorage` so a page reload doesn't force a re-login, but it's
   cleared when the tab closes.
-- **Search** uses SQLite `icontains` lookups (no Postgres full-text search available on
-  SQLite) — sufficient for small/medium document sets; swapping in Postgres + `SearchVector`
-  later is a drop-in change to `DocumentListCreateView.get_queryset`.
+- **Version file URLs are never serialized** (`DocumentVersionSerializer` deliberately omits
+  `file`) — exposing a direct file URL there would let anyone with view access reach the file
+  regardless of their `can_download` grant. Downloads always go through
+  `DocumentDownloadView`, which checks permission first.
+- **Search** uses `icontains` lookups against whichever database is configured — sufficient
+  for small/medium document sets; swapping in Postgres `SearchVector` for real full-text search
+  is a natural next step once the app is actually running on Postgres.

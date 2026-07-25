@@ -82,14 +82,7 @@ class DocumentListCreateView(generics.ListCreateAPIView):
         serializer.is_valid(raise_exception=True)
         document = serializer.save()
         audit_log(request.user, "upload", document=document, version=1)
-
-        duplicates = Document.find_duplicate_titles(document.title, exclude_pk=document.pk)
-        out = DocumentDetailSerializer(document).data
-        out["duplicate_warning"] = [
-            {"id": d.id, "code": d.code, "owner": d.owner.username, "created_at": d.created_at}
-            for d in duplicates
-        ]
-        return Response(out, status=status.HTTP_201_CREATED)
+        return Response(DocumentDetailSerializer(document).data, status=status.HTTP_201_CREATED)
 
 
 class DocumentDetailView(generics.RetrieveUpdateDestroyAPIView):

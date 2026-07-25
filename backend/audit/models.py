@@ -16,6 +16,8 @@ class AuditLog(models.Model):
         ("permission_revoke", "Permission revoke"),
         ("move", "Move"),
         ("delete", "Delete"),
+        ("backup_export", "Backup export"),
+        ("backup_restore", "Backup restore"),
     ]
 
     actor = models.ForeignKey(

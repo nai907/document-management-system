@@ -11,7 +11,7 @@ from .models import (
     Folder,
     Tag,
 )
-from .validators import get_file_type_error
+from .validators import get_duplicate_title_error, get_file_type_error
 
 User = get_user_model()
 
@@ -36,8 +36,13 @@ class DocumentVersionSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = DocumentVersion
+        # Deliberately excludes `file`: DRF would serialize it as a direct
+        # (for S3, presigned-but-still-bypassing) URL to anyone who can view
+        # the document, regardless of their `can_download` grant. Downloads
+        # only ever go through DocumentDownloadView, which checks permission
+        # first and streams the bytes itself.
         fields = [
-            "id", "document", "version_number", "file", "uploaded_by",
+            "id", "document", "version_number", "uploaded_by",
             "uploaded_by_username", "uploaded_at", "change_note", "size", "checksum",
         ]
         read_only_fields = ["document", "version_number", "uploaded_by", "size", "checksum"]
@@ -90,6 +95,13 @@ class DocumentListSerializer(serializers.ModelSerializer):
         latest = obj.latest_version
         return latest.version_number if latest else None
 
+    def validate_title(self, value):
+        exclude_pk = self.instance.pk if self.instance else None
+        error = get_duplicate_title_error(value, exclude_pk=exclude_pk)
+        if error:
+            raise serializers.ValidationError(error)
+        return value
+
 
 class DocumentDetailSerializer(DocumentListSerializer):
     versions = DocumentVersionSerializer(many=True, read_only=True)
@@ -123,6 +135,12 @@ class DocumentCreateSerializer(serializers.ModelSerializer):
             "id", "title", "description", "folder", "tag_names",
             "file", "change_note",
         ]
+
+    def validate_title(self, value):
+        error = get_duplicate_title_error(value)
+        if error:
+            raise serializers.ValidationError(error)
+        return value
 
     def validate_file(self, value):
         error = get_file_type_error(value)
