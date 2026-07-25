@@ -1,0 +1,23 @@
+{
+  "version": 2,
+  "builds": [
+    {
+      "src": "backend/vercel_app.py",
+      "use": "@vercel/python"
+    },
+    {
+      "src": "frontend/package.json",
+      "use": "@vercel/static-build",
+      "config": { "distDir": "dist" }
+    }
+  ],
+  "routes": [
+    { "src": "/api/(.*)", "dest": "backend/vercel_app.py" },
+    { "src": "/assets/(.*)", "dest": "frontend/assets/$1" },
+    { "src": "/favicon.svg", "dest": "frontend/favicon.svg" },
+    { "src": "/(.*)", "dest": "frontend/index.html" }
+  ],
+  "crons": [
+    { "path": "/api/backup/cron/", "schedule": "0 2 * * *" }
+  ]
+}

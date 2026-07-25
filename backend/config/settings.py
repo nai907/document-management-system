@@ -211,4 +211,29 @@ BACKUP_INTERVAL_SECONDS = int(os.environ.get('BACKUP_INTERVAL_SECONDS', '86400')
 BACKUP_STORAGE = os.environ.get('BACKUP_STORAGE', 'local')
 BACKUP_S3_PREFIX = os.environ.get('BACKUP_S3_PREFIX', 'backups/')
 
+# Shared secret protecting /api/backup/cron/ (the scheduled-backup trigger
+# for serverless hosting). Vercel Cron sends it as `Authorization: Bearer
+# <CRON_SECRET>` automatically when a CRON_SECRET env var exists on the
+# project. Unset (the default) = the endpoint 404s.
+CRON_SECRET = os.environ.get('CRON_SECRET', '')
+
+# --- Vercel serverless adjustments ---
+# Vercel sets VERCEL=1 in its build and runtime environments. Serverless
+# means: no long-lived process (so the in-process backup timer can never
+# fire - Vercel Cron hits /api/backup/cron/ instead), and connections
+# shouldn't be held open across invocations (conn_max_age=0; use Supabase's
+# transaction pooler URL as DATABASE_URL, since the direct db.*.supabase.co
+# host is IPv6-only and unreachable from Vercel functions).
+if os.environ.get('VERCEL'):
+    # Debug defaults ON for local dev but must never default on in a public
+    # deployment - on Vercel it's opt-in via an explicit DEBUG=True env var.
+    DEBUG = os.environ.get('DEBUG', 'False') == 'True'
+    ALLOWED_HOSTS.append('.vercel.app')
+    CSRF_TRUSTED_ORIGINS = ['https://*.vercel.app']
+    BACKUP_INTERVAL_SECONDS = 0
+    DATABASES['default'] = dj_database_url.config(
+        default=f'sqlite:///{BASE_DIR / "db.sqlite3"}',
+        conn_max_age=0,
+    )
+
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'

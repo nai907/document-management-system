@@ -174,6 +174,25 @@ class BucketBackupTests(TestCase):
             self.assertEqual(len(files), 1)
 
 
+class BackupCronViewTests(APITestCase):
+    def test_404_when_no_cron_secret_configured(self):
+        with override_settings(CRON_SECRET=""):
+            resp = self.client.get("/api/backup/cron/")
+        self.assertEqual(resp.status_code, 404)
+
+    def test_403_on_wrong_secret(self):
+        with override_settings(CRON_SECRET="topsecret"):
+            resp = self.client.get("/api/backup/cron/", HTTP_AUTHORIZATION="Bearer wrong")
+        self.assertEqual(resp.status_code, 403)
+
+    def test_correct_secret_writes_backup(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            with override_settings(CRON_SECRET="topsecret", BACKUP_STORAGE="local", BACKUP_DIR=tmpdir):
+                resp = self.client.get("/api/backup/cron/", HTTP_AUTHORIZATION="Bearer topsecret")
+            self.assertEqual(resp.status_code, 200, resp.data)
+            self.assertEqual(len(list(Path(tmpdir).glob("docmanage-backup-*.zip"))), 1)
+
+
 class ShouldStartSchedulerTests(TestCase):
     def test_management_commands_are_excluded(self):
         for command in ("test", "migrate", "makemigrations", "seed_demo", "run_backup", "shell"):

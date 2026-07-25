@@ -137,6 +137,37 @@ Example: a nightly backup at 2 AM, keeping the last 30.
   `python.exe` with arguments `manage.py run_backup --retention 30` and "Start in" set to the
   `backend` folder.
 
+## Deploying to Vercel
+
+The repo is set up to deploy as a single Vercel project: the Vue frontend as a static build and
+Django as a Python serverless function, with Supabase providing Postgres and file storage
+([vercel.json](vercel.json) wires the routing; `backend/vercel_app.py` is the function entrypoint).
+
+1. **Import the repo** at vercel.com → Add New → Project → import
+   `document-management-system` from GitHub. Leave Root Directory as the repo root and
+   framework preset as "Other" — `vercel.json` drives the whole build.
+2. **Set environment variables** (Project → Settings → Environment Variables):
+   - `SECRET_KEY` — a fresh random key, e.g. from
+     `python -c "from django.core.management.utils import get_random_secret_key; print(get_random_secret_key())"`.
+     Do NOT reuse the dev fallback from settings.py; it's public in this repo.
+   - `DATABASE_URL` — **must be Supabase's pooler URL, not the direct one.** The direct
+     `db.<ref>.supabase.co` host is IPv6-only and unreachable from Vercel functions. In Supabase:
+     Connect → "Transaction pooler" URI (port 6543), then paste your DB password into it.
+   - `AWS_STORAGE_BUCKET_NAME`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`,
+     `AWS_S3_ENDPOINT_URL`, `AWS_S3_REGION_NAME` — same values as local `backend/.env`.
+   - `BACKUP_STORAGE=bucket` — Vercel's disk is ephemeral, so scheduled backups go to the bucket.
+   - `CRON_SECRET` — any long random string. Vercel automatically sends it as a bearer token
+     when its cron (2:00 AM UTC daily, defined in vercel.json) calls `/api/backup/cron/`;
+     the endpoint rejects anything else and 404s entirely if this var is unset.
+3. **Deploy.** Migrations aren't run by Vercel — run them from your machine against the same
+   `DATABASE_URL` (`python manage.py migrate`), which has usually already happened in dev.
+
+Serverless notes: `settings.py` detects `VERCEL=1` and automatically turns off debug (unless
+explicitly re-enabled), allows `.vercel.app` hosts, disables the in-process backup timer (a
+function has no long-lived process — Vercel Cron replaces it), and stops holding DB connections
+across invocations. The Django admin (`/admin/`) isn't routed or styled on Vercel — use it
+locally against the same database instead.
+
 ## Notable design decisions
 
 - **Permission resolution** (`backend/documents/permissions.py`): admins always pass; a
