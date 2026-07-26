@@ -1,4 +1,7 @@
 import hashlib
+import os
+import re
+import unicodedata
 
 from django.conf import settings
 from django.contrib.auth.models import Group
@@ -31,7 +34,14 @@ class Tag(models.Model):
 
 
 def upload_to(instance, filename):
-    return f"documents/{instance.document.code}/v{instance.version_number}_{filename}"
+    # Transliterated to plain ASCII: some S3-compatible endpoints (observed
+    # with Supabase Storage) reject PutObject for a non-ASCII key, which
+    # otherwise surfaces as an unhandled 500 on upload of any file whose
+    # original filename has non-ASCII characters (e.g. Thai, CJK, emoji).
+    base, ext = os.path.splitext(filename)
+    ascii_base = unicodedata.normalize("NFKD", base).encode("ascii", "ignore").decode("ascii")
+    ascii_base = re.sub(r"[^A-Za-z0-9._-]", "_", ascii_base).strip("_") or "file"
+    return f"documents/{instance.document.code}/v{instance.version_number}_{ascii_base}{ext}"
 
 
 class Document(models.Model):

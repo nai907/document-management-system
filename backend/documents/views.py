@@ -1,3 +1,4 @@
+from django.db import transaction
 from django.db.models import Q
 from django.http import FileResponse, Http404
 from django.shortcuts import get_object_or_404
@@ -145,16 +146,17 @@ class DocumentVersionUploadView(generics.CreateAPIView):
         next_version = (document.latest_version.version_number + 1) if document.latest_version else 1
         checksum = DocumentVersion.compute_checksum(file_obj)
         file_obj.seek(0)
-        version = DocumentVersion.objects.create(
-            document=document,
-            version_number=next_version,
-            file=file_obj,
-            uploaded_by=request.user,
-            change_note=request.data.get("change_note", ""),
-            size=file_obj.size,
-            checksum=checksum,
-        )
-        audit_log(request.user, "new_version", document=document, version=next_version, checksum=checksum)
+        with transaction.atomic():
+            version = DocumentVersion.objects.create(
+                document=document,
+                version_number=next_version,
+                file=file_obj,
+                uploaded_by=request.user,
+                change_note=request.data.get("change_note", ""),
+                size=file_obj.size,
+                checksum=checksum,
+            )
+            audit_log(request.user, "new_version", document=document, version=next_version, checksum=checksum)
         return Response(DocumentVersionSerializer(version).data, status=status.HTTP_201_CREATED)
 
 

@@ -1,5 +1,6 @@
 from django.contrib.auth import get_user_model
 from django.contrib.auth.models import Group
+from django.db import transaction
 from rest_framework import serializers
 
 from reviews.serializers import ReviewAssignmentSerializer
@@ -154,20 +155,25 @@ class DocumentCreateSerializer(serializers.ModelSerializer):
         change_note = validated_data.pop("change_note", "")
         request = self.context["request"]
 
-        document = Document.objects.create(owner=request.user, **validated_data)
-        if tag_names:
-            tags = [Tag.objects.get_or_create(name=name)[0] for name in tag_names]
-            document.tags.set(tags)
-
         checksum = DocumentVersion.compute_checksum(file_obj)
         file_obj.seek(0)
-        DocumentVersion.objects.create(
-            document=document,
-            version_number=1,
-            file=file_obj,
-            uploaded_by=request.user,
-            change_note=change_note,
-            size=file_obj.size,
-            checksum=checksum,
-        )
+
+        # Atomic so a storage failure while saving the version's file (e.g.
+        # the S3 backend rejecting the upload) rolls back the Document row
+        # too, instead of leaving an orphaned draft with no version.
+        with transaction.atomic():
+            document = Document.objects.create(owner=request.user, **validated_data)
+            if tag_names:
+                tags = [Tag.objects.get_or_create(name=name)[0] for name in tag_names]
+                document.tags.set(tags)
+
+            DocumentVersion.objects.create(
+                document=document,
+                version_number=1,
+                file=file_obj,
+                uploaded_by=request.user,
+                change_note=change_note,
+                size=file_obj.size,
+                checksum=checksum,
+            )
         return document
